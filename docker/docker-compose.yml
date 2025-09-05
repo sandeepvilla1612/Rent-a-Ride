@@ -1,0 +1,35 @@
+version: "3.9"
+
+services:
+  mongodb:
+    image: mongo:6
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    # Don't expose publicly; containers can access by service name "mongodb"
+
+  backend:
+    # Jenkins will inject these image tags; defaults allow local builds too
+    image: ${BACKEND_IMAGE:-rentaride-backend:latest}
+    restart: unless-stopped
+    env_file:
+      - ./docker/.env
+    environment:
+      # Safe defaults; override in ./docker/.env if needed
+      - PORT=${PORT:-5000}
+      - MONGO_URI=${MONGO_URI:-mongodb://mongodb:27017/rentaride}
+    depends_on:
+      - mongodb
+    ports:
+      - "${PORT:-5000}:5000"
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-rentaride-frontend:latest}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  mongo_data:

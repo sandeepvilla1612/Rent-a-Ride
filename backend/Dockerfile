@@ -1,20 +1,24 @@
 # Backend: Node/Express
 FROM node:18-alpine
+
+# Set working directory
 WORKDIR /app
 
-# Install only prod deps
+# Copy dependency files first (for better caching)
 COPY backend/package*.json ./
-RUN npm ci --omit=dev
 
-# Copy source
-COPY backend ./
+# Install only production dependencies
+RUN npm install --omit=dev
 
+# Copy the rest of the backend source code
+COPY backend/ .
+
+# Set environment variables
 ENV NODE_ENV=production
-# Change if your app listens on a different port
 ENV PORT=5000
+
+# Expose backend port
 EXPOSE 5000
 
-# Uses the repo's "start" script (recommended)
+# Start the backend
 CMD ["npm", "start"]
-# If you don't have a start script, change to:
-# CMD ["node", "index.js"]

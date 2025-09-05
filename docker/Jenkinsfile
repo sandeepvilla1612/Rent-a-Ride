@@ -1,0 +1,97 @@
+pipeline {
+  agent any
+
+  parameters {
+    string(name: 'VITE_API_BASE_URL',
+           defaultValue: 'http://localhost:5000',
+           description: 'Frontend build-time API base URL (for Vite). If you rely on Nginx /api proxy, you can leave this default or set to ""')
+  }
+
+  environment {
+    // Optional: if you want to push to Docker Hub, create a Jenkins credential with ID 'dockerhub-creds'
+    // and uncomment the following line:
+    // REGISTRY_CREDENTIALS = credentials('dockerhub-creds')
+
+    // If pushing, the next lines derive docker.io/<user>
+    DOCKERHUB_USER = "${env.REGISTRY_CREDENTIALS_USR ?: ''}"
+    DOCKERHUB_PASS = "${env.REGISTRY_CREDENTIALS_PSW ?: ''}"
+    REGISTRY = "${DOCKERHUB_USER ? "docker.io/${DOCKERHUB_USER}" : ''}"
+
+    APP_NAME = "rentaride"
+    TAG = "${env.BUILD_NUMBER}"
+
+    BACKEND_IMAGE = "${REGISTRY ? "${REGISTRY}/${APP_NAME}-backend:${TAG}" : "${APP_NAME}-backend:${TAG}"}"
+    FRONTEND_IMAGE = "${REGISTRY ? "${REGISTRY}/${APP_NAME}-frontend:${TAG}" : "${APP_NAME}-frontend:${TAG}"}"
+
+    // Where we keep runtime .env (secrets) and compose on the server
+    DEPLOY_DIR = "/opt/rentaride"
+  }
+
+  options { timestamps() }
+
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Docker Login (optional)') {
+      when { expression { return env.DOCKERHUB_USER?.trim() } }
+      steps {
+        sh 'echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin'
+      }
+    }
+
+    stage('Build Images') {
+      steps {
+        sh '''
+          set -eux
+          docker build -f backend/Dockerfile -t "$BACKEND_IMAGE" .
+          docker build --build-arg VITE_API_BASE_URL="${VITE_API_BASE_URL}" \
+                       -f client/Dockerfile -t "$FRONTEND_IMAGE" .
+        '''
+      }
+    }
+
+    stage('Push Images (optional)') {
+      when { expression { return env.DOCKERHUB_USER?.trim() } }
+      steps {
+        sh '''
+          set -eux
+          docker push "$BACKEND_IMAGE"
+          docker push "$FRONTEND_IMAGE"
+        '''
+      }
+    }
+
+    stage('Deploy with Docker Compose') {
+      steps {
+        sh '''
+          set -eux
+
+          # Prepare deploy directory
+          sudo mkdir -p "$DEPLOY_DIR/docker"
+          sudo chown -R $(id -u):$(id -g) "$DEPLOY_DIR"
+
+          # Ship compose + nginx conf (kept in repo)
+          install -m 644 docker/docker-compose.yml "$DEPLOY_DIR/docker-compose.yml"
+          install -m 644 docker/nginx.conf "$DEPLOY_DIR/docker/nginx.conf"
+
+          # Compose variable file (image tags, Vite URL for rebuilds, etc.)
+          cat > "$DEPLOY_DIR/.compose.env" <<EOF
+BACKEND_IMAGE=$BACKEND_IMAGE
+FRONTEND_IMAGE=$FRONTEND_IMAGE
+VITE_API_BASE_URL=${VITE_API_BASE_URL}
+EOF
+
+          # NOTE: runtime secrets must already exist in $DEPLOY_DIR/docker/.env (you create this once)
+          cd "$DEPLOY_DIR"
+          docker compose --env-file .compose.env -f docker-compose.yml up -d --remove-orphans
+        '''
+      }
+    }
+  }
+
+  post {
+    always { sh 'docker logout || true' }
+  }
+}

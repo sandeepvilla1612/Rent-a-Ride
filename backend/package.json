@@ -1,9 +1,17 @@
 {
-  "name": "backend",
+  "name": "rent-a-ride-backend",
   "version": "1.0.0",
-  "main": "index.js",
-  "license": "ISC",
+  "description": "Backend service for Rent-a-Ride application",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongoose": "^7.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.0",
+    "jsonwebtoken": "^9.0.0",
+    "bcrypt": "^5.1.0"
   }
 }
